@@ -1,72 +1,52 @@
-import json
 import socket
-import threading
 
-from DataConverter import DataConverter
+from DataConverter import BUFFER_SIZE, DataConverter
 
-buffer_size = 1024
 
-client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-client_socket.connect(('kiwiwip.duckdns.org', 4848))
-print("Connected to server")
+SERVER_HOST = "127.0.0.1"
+SERVER_PORT = 4848
 
-data = DataConverter(client_socket.recv(buffer_size, socket.MSG_WAITALL))
-print(data)
 
-# 서버에 메시지를 전송
-sendMessage = int(input("send-> "))
-data.send({value: key for key, value in DataConverter.player_action.items()}[sendMessage])
-print(bytes(data))
-client_socket.sendall(bytes(data))
+def receive_packet(client_socket: socket.socket) -> bytes:
+    data = b""
+    while len(data) < BUFFER_SIZE:
+        chunk = client_socket.recv(BUFFER_SIZE - len(data))
+        if not chunk:
+            raise ConnectionError("server closed the connection")
+        data += chunk
 
-data.recv(client_socket.recv(buffer_size, socket.MSG_WAITALL))
-print("\n", data)
+    return data
 
-while True:
 
-    if data.my_action == data.player_action["PLAYER_GAMING"]:
-        lock = threading.Lock()
-        # 정보를 받아오는 쓰레드 생성
-        thread = threading.Thread(target=lambda : data.recv(client_socket.recv(buffer_size)))
-        data.recv(client_socket.recv(1024, socket.MSG_WAITALL))
+def action_name(action_value: int) -> str:
+    return {value: key for key, value in DataConverter.player_action.items()}[action_value]
 
-        print("player_gaming")
 
-        sendMessage = int(input("send-> "))
-        if sendMessage == "exit":
+def main():
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((SERVER_HOST, SERVER_PORT))
+    print("Connected to server")
+
+    data = DataConverter(receive_packet(client_socket))
+    print(data)
+
+    while True:
+        raw_message = input("send action number, or exit -> ").strip()
+        if raw_message == "exit":
             break
 
-        bytesString = data.send({value: key for key, value in DataConverter.player_action.items()}[sendMessage])
-        lock.acquire()
-        client_socket.sendall(bytesString)
-        lock.release()
+        try:
+            action = action_name(int(raw_message))
+        except (ValueError, KeyError):
+            print("invalid action")
+            continue
 
-        # 카드 정보를 받아옴
-        continue
+        client_socket.sendall(data.send(action))
+        data.recv(receive_packet(client_socket))
+        print(data)
 
-    if data.my_action == data.player_action["PLAYER_TURN"]:
-        # 서버에 메시지를 전송
-        sendMessage = int(input("send-> "))
-        data.send({value: key for key, value in DataConverter.player_action.items()}[sendMessage])
-        print(bytes(data))
+    client_socket.close()
 
-        client_socket.sendall(bytes(data))
 
-        data.recv(client_socket.recv(buffer_size, socket.MSG_WAITALL))
-        print("\n", data)
-
-        print("player_turn")
-
-        # 카드 정보를 받아옴
-        continue
-
-client_socket.close()
-
-# 서버에 메시지를 전송
-# sendMessage = int(input("send-> "))
-# if sendMessage == "exit":
-#     break
-#
-# data.send({value: key for key, value in DataConverter.player_action.items()}[sendMessage])
-# print(bytes(data))
-# client_socket.sendall(bytes(data))
+if __name__ == "__main__":
+    main()
